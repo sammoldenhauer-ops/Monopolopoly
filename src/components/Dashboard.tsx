@@ -30,9 +30,60 @@ const TABS: { id: Tab; label: string; emoji: string }[] = [
   { id: 'log',           label: 'Log',            emoji: '📜' },
 ];
 
+type ConfirmKey = 'save' | 'load' | 'new' | null;
+
+function HeaderConfirmButton({
+  label,
+  confirmLabel,
+  colorClass,
+  confirmKey,
+  pendingConfirm,
+  setPendingConfirm,
+  onConfirm,
+}: {
+  label: string;
+  confirmLabel: string;
+  colorClass: string;
+  confirmKey: Exclude<ConfirmKey, null>;
+  pendingConfirm: ConfirmKey;
+  setPendingConfirm: (key: ConfirmKey) => void;
+  onConfirm: () => void;
+}) {
+  const isPending = pendingConfirm === confirmKey;
+
+  if (isPending) {
+    return (
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => { onConfirm(); setPendingConfirm(null); }}
+          className="bg-red-700 hover:bg-red-600 text-white text-xs px-2 py-1 rounded font-semibold"
+        >
+          {confirmLabel}
+        </button>
+        <button
+          onClick={() => setPendingConfirm(null)}
+          className="bg-gray-600 hover:bg-gray-500 text-white text-xs px-2 py-1 rounded"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setPendingConfirm(confirmKey)}
+      className={`${colorClass} text-white text-xs px-2 py-1 rounded`}
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function Dashboard() {
   const { state, activePlayers, pendingOpportunities, saveGame, loadSavedGame, resetGame } = useGame();
   const [tab, setTab] = useState<Tab>('players');
+  const [pendingConfirm, setPendingConfirm] = useState<ConfirmKey>(null);
 
   return (
     <div className="min-h-screen bg-gray-900 flex flex-col">
@@ -46,24 +97,33 @@ export default function Dashboard() {
           <span className="text-gray-400">🏠 {state.bankHouseSupply}/32</span>
           <span className="text-gray-400">🏨 {state.bankHotelSupply}/12</span>
           <span className="text-yellow-400 font-bold">🅿️ {fmt$(state.freeParkingPool)}</span>
-          <button
-            onClick={saveGame}
-            className="bg-green-700 hover:bg-green-600 text-white text-xs px-2 py-1 rounded"
-          >
-            Save Game
-          </button>
-          <button
-            onClick={loadSavedGame}
-            className="bg-blue-700 hover:bg-blue-600 text-white text-xs px-2 py-1 rounded"
-          >
-            Load Save
-          </button>
-          <button
-            onClick={resetGame}
-            className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded"
-          >
-            New Game
-          </button>
+          <HeaderConfirmButton
+            label="Save"
+            confirmLabel="Confirm Save"
+            colorClass="bg-green-700 hover:bg-green-600"
+            confirmKey="save"
+            pendingConfirm={pendingConfirm}
+            setPendingConfirm={setPendingConfirm}
+            onConfirm={saveGame}
+          />
+          <HeaderConfirmButton
+            label="Load"
+            confirmLabel="Confirm Load"
+            colorClass="bg-blue-700 hover:bg-blue-600"
+            confirmKey="load"
+            pendingConfirm={pendingConfirm}
+            setPendingConfirm={setPendingConfirm}
+            onConfirm={loadSavedGame}
+          />
+          <HeaderConfirmButton
+            label="New"
+            confirmLabel="Confirm New"
+            colorClass="bg-gray-700 hover:bg-gray-600"
+            confirmKey="new"
+            pendingConfirm={pendingConfirm}
+            setPendingConfirm={setPendingConfirm}
+            onConfirm={resetGame}
+          />
           {pendingOpportunities.length > 0 && (
             <button
               onClick={() => setTab('opportunities')}
