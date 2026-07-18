@@ -173,7 +173,7 @@ export function calculateTax(state: GameState): TaxEntry[] {
   const { players, properties } = state;
   const ranked = rankPlayersByNetWorth(players, properties);
   return ranked.map((player, idx) => {
-    const rate = idx === 0 ? 0.10 : idx === 1 ? 0.08 : idx === 2 ? 0.06 : 0.05;
+    const rate = idx === 0 ? 0.05 : idx === 1 ? 0.04 : idx === 2 ? 0.03 : 0.02;
     const nw = calcNetWorth(player, properties);
     const taxOwed = Math.floor(nw * rate);
     const cashAfter = player.cash - taxOwed;
