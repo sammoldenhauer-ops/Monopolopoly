@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useReducer, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useReducer } from 'react';
 import type {
   GameState, GameSnapshot, Player, Property, MarketOpportunityId,
   SecretVentureId, Modifier, PropertyGroup, LogEntry,
@@ -64,6 +64,8 @@ const INITIAL_STATE: GameState = {
   undoState: null,
 };
 
+const SAVE_KEY = 'monopolopoly-save-v1';
+
 // ──────────────────────────────────────────────────────────────
 // Log helper
 // ──────────────────────────────────────────────────────────────
@@ -95,12 +97,36 @@ function withUndoSnapshot(state: GameState, updater: (snapshot: GameSnapshot) =>
   return withUndo(state, updater(stripUndoState(state)));
 }
 
+function loadSavedState(): GameState | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(SAVE_KEY);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as GameState;
+    return {
+      ...INITIAL_STATE,
+      ...parsed,
+      undoState: parsed.undoState ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persistState(state: GameState) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+}
+
 // ──────────────────────────────────────────────────────────────
 // Actions
 // ──────────────────────────────────────────────────────────────
 
 export type GameAction =
   | { type: 'START_GAME'; playerNames: string[] }
+  | { type: 'RESET_GAME' }
+  | { type: 'LOAD_GAME'; state: GameSnapshot }
   | { type: 'UNDO_LAST_ACTION' }
   | { type: 'RECORD_AUCTION'; propertyId: string; winnerId: string; amount: number }
   | { type: 'PAY_RENT'; propertyId: string; payerId: string; amount: number; diceRoll?: number }
@@ -761,6 +787,20 @@ function gameReducer(state: GameState, action: GameAction): GameState {
 }
 
 function undoableGameReducer(state: GameState, action: GameAction): GameState {
+  if (action.type === 'RESET_GAME') {
+    return {
+      ...INITIAL_STATE,
+      undoState: null,
+    };
+  }
+
+  if (action.type === 'LOAD_GAME') {
+    return {
+      ...action.state,
+      undoState: null,
+    };
+  }
+
   if (action.type === 'UNDO_LAST_ACTION') {
     if (!state.undoState) return state;
     return {
@@ -785,6 +825,9 @@ function undoableGameReducer(state: GameState, action: GameAction): GameState {
 type GameContextValue = {
   state: GameState;
   dispatch: React.Dispatch<GameAction>;
+  saveGame: () => void;
+  loadSavedGame: () => void;
+  resetGame: () => void;
   // convenience selectors
   activePlayers: Player[];
   pendingOpportunities: ReturnType<typeof checkOpportunities>;
@@ -793,13 +836,31 @@ type GameContextValue = {
 const GameContext = createContext<GameContextValue | null>(null);
 
 export function GameProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(undoableGameReducer, INITIAL_STATE);
+  const [state, dispatch] = useReducer(undoableGameReducer, undefined, () => loadSavedState() ?? INITIAL_STATE);
+
+  useEffect(() => {
+    persistState(state);
+  }, [state]);
+
+  const saveGame = () => persistState(state);
+  const loadSavedGame = () => {
+    const saved = loadSavedState();
+    if (saved) {
+      dispatch({ type: 'LOAD_GAME', state: saved });
+    }
+  };
+  const resetGame = () => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(SAVE_KEY);
+    }
+    dispatch({ type: 'RESET_GAME' });
+  };
 
   const activePlayers = state.players.filter(p => !p.isEliminated && !p.teamOf);
   const pendingOpportunities = checkOpportunities(state);
 
   return (
-    <GameContext.Provider value={{ state, dispatch, activePlayers, pendingOpportunities }}>
+    <GameContext.Provider value={{ state, dispatch, saveGame, loadSavedGame, resetGame, activePlayers, pendingOpportunities }}>
       {children}
     </GameContext.Provider>
   );

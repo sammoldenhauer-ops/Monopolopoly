@@ -31,7 +31,7 @@ const TABS: { id: Tab; label: string; emoji: string }[] = [
 ];
 
 export default function Dashboard() {
-  const { state, activePlayers, pendingOpportunities } = useGame();
+  const { state, activePlayers, pendingOpportunities, saveGame, loadSavedGame, resetGame } = useGame();
   const [tab, setTab] = useState<Tab>('players');
 
   return (
@@ -46,6 +46,24 @@ export default function Dashboard() {
           <span className="text-gray-400">🏠 {state.bankHouseSupply}/32</span>
           <span className="text-gray-400">🏨 {state.bankHotelSupply}/12</span>
           <span className="text-yellow-400 font-bold">🅿️ {fmt$(state.freeParkingPool)}</span>
+          <button
+            onClick={saveGame}
+            className="bg-green-700 hover:bg-green-600 text-white text-xs px-2 py-1 rounded"
+          >
+            Save Game
+          </button>
+          <button
+            onClick={loadSavedGame}
+            className="bg-blue-700 hover:bg-blue-600 text-white text-xs px-2 py-1 rounded"
+          >
+            Load Save
+          </button>
+          <button
+            onClick={resetGame}
+            className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded"
+          >
+            New Game
+          </button>
           {pendingOpportunities.length > 0 && (
             <button
               onClick={() => setTab('opportunities')}
