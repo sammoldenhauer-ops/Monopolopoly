@@ -169,4 +169,8 @@ export type GameState = {
   log: LogEntry[];
   /** franchisee targets: playerId -> propertyGroup they are immune-discounted on */
   franchiseeTargets: Record<string, PropertyGroup>;
+  /** single-step undo snapshot for the most recent state-changing action */
+  undoState: GameSnapshot | null;
 };
+
+export type GameSnapshot = Omit<GameState, 'undoState'>;

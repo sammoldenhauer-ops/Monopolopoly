@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useReducer, useCallback } from 'react';
 import type {
-  GameState, Player, Property, MarketOpportunityId,
+  GameState, GameSnapshot, Player, Property, MarketOpportunityId,
   SecretVentureId, Modifier, PropertyGroup, LogEntry,
 } from './types';
 import {
@@ -61,6 +61,7 @@ const INITIAL_STATE: GameState = {
   eliminationCount: 0,
   log: [],
   franchiseeTargets: {},
+  undoState: null,
 };
 
 // ──────────────────────────────────────────────────────────────
@@ -78,12 +79,29 @@ function makeLog(action: string, detail: string, playerIds: string[] = []): LogE
   };
 }
 
+function stripUndoState(state: GameState): GameSnapshot {
+  const { undoState: _undoState, ...snapshot } = state;
+  return snapshot;
+}
+
+function withUndo(state: GameState, nextState: GameState): GameState {
+  return {
+    ...nextState,
+    undoState: stripUndoState(state),
+  };
+}
+
+function withUndoSnapshot(state: GameState, updater: (snapshot: GameSnapshot) => GameState): GameState {
+  return withUndo(state, updater(stripUndoState(state)));
+}
+
 // ──────────────────────────────────────────────────────────────
 // Actions
 // ──────────────────────────────────────────────────────────────
 
 export type GameAction =
   | { type: 'START_GAME'; playerNames: string[] }
+  | { type: 'UNDO_LAST_ACTION' }
   | { type: 'RECORD_AUCTION'; propertyId: string; winnerId: string; amount: number }
   | { type: 'PAY_RENT'; propertyId: string; payerId: string; amount: number; diceRoll?: number }
   | { type: 'PASS_GO'; playerId: string }
@@ -742,6 +760,24 @@ function gameReducer(state: GameState, action: GameAction): GameState {
   }
 }
 
+function undoableGameReducer(state: GameState, action: GameAction): GameState {
+  if (action.type === 'UNDO_LAST_ACTION') {
+    if (!state.undoState) return state;
+    return {
+      ...state.undoState,
+      undoState: null,
+    };
+  }
+
+  const nextState = gameReducer(state, action);
+  if (nextState === state) return state;
+
+  return {
+    ...nextState,
+    undoState: stripUndoState(state),
+  };
+}
+
 // ──────────────────────────────────────────────────────────────
 // Context
 // ──────────────────────────────────────────────────────────────
@@ -757,7 +793,7 @@ type GameContextValue = {
 const GameContext = createContext<GameContextValue | null>(null);
 
 export function GameProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(gameReducer, INITIAL_STATE);
+  const [state, dispatch] = useReducer(undoableGameReducer, INITIAL_STATE);
 
   const activePlayers = state.players.filter(p => !p.isEliminated && !p.teamOf);
   const pendingOpportunities = checkOpportunities(state);
