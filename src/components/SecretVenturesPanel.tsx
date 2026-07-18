@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useGame } from '@/lib/gameStore';
+import { getModifierStatus } from '@/lib/engine';
 import { SECRET_VENTURES } from '@/lib/boardData';
 import type { SecretVentureId, PropertyGroup } from '@/lib/types';
 
@@ -114,22 +115,36 @@ export default function SecretVenturesPanel() {
       <div className="space-y-2">
         <h3 className="text-gray-400 text-xs uppercase tracking-wide">All 8 Ventures</h3>
         {SECRET_VENTURES.map(v => {
-          const assignedTo = state.players.find(p => p.secretVenture === v.id);
+          const revealer = state.players.find(p => p.secretVenture === v.id);
+          // Whoever currently holds the modifier — usually the revealer, but if the
+          // revealer was eliminated and absorbed, this will be the acquiring player.
+          const holder = state.players.find(p => !p.isEliminated && p.activeModifiers.some(m => m.sourceId === v.id));
+          const heldModifier = holder?.activeModifiers.find(m => m.sourceId === v.id);
+          const status = holder && heldModifier ? getModifierStatus(heldModifier, holder.id, state.properties) : null;
+          const inheritedFromSomeoneElse = holder && revealer && holder.id !== revealer.id;
           const pendingOn = state.players.find(p => p.pendingAbsorbedVentures.includes(v.id));
+
           return (
-            <div key={v.id} className={`bg-gray-800 rounded-lg p-3 border ${assignedTo ? 'border-yellow-600' : 'border-gray-700'}`}>
-              <div className="flex items-start justify-between gap-2">
+            <div key={v.id} className={`bg-gray-800 rounded-lg p-3 border ${holder ? 'border-yellow-600' : 'border-gray-700'}`}>
+              <div className="flex items-start justify-between gap-2 flex-wrap">
                 <div className="font-semibold text-white text-sm">{v.name}</div>
-                {assignedTo && (
-                  <span className="text-xs bg-yellow-700 text-yellow-100 px-2 py-0.5 rounded shrink-0">
-                    {assignedTo.name}
-                  </span>
-                )}
-                {pendingOn && !assignedTo && (
-                  <span className="text-xs bg-purple-700 text-purple-100 px-2 py-0.5 rounded shrink-0">
-                    Pending: {pendingOn.name}
-                  </span>
-                )}
+                <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                  {holder && (
+                    <span className="text-xs bg-yellow-700 text-yellow-100 px-2 py-0.5 rounded shrink-0">
+                      {holder.name}{inheritedFromSomeoneElse ? ` (inherited from ${revealer!.name})` : ''}
+                    </span>
+                  )}
+                  {status && !status.active && (
+                    <span className="text-xs bg-gray-600 text-gray-200 px-2 py-0.5 rounded shrink-0" title={status.note}>
+                      Dormant
+                    </span>
+                  )}
+                  {pendingOn && !holder && (
+                    <span className="text-xs bg-purple-700 text-purple-100 px-2 py-0.5 rounded shrink-0">
+                      Pending: {pendingOn.name}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="text-gray-400 text-xs mt-1">
                 <span className="text-gray-500">Achieve: </span>{v.achievementDescription}

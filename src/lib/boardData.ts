@@ -446,7 +446,7 @@ export const SECRET_VENTURES: SecretVenture[] = [
     id: 'utility_provider',
     name: 'Utility Provider',
     achievementDescription: 'Own both Utilities.',
-    effectDescription: 'All players landing on either Utility pay the combined rent (10× dice roll, as if both utilities are owned).',
+    effectDescription: 'All players landing on either Utility pay a 25× dice roll penalty rent (instead of the standard 4×/10×).',
   },
   {
     id: 'slum_lord',

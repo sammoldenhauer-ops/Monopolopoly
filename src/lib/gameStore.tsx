@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useReducer } from 'react';
+import React, { createContext, useContext, useEffect, useReducer, useState } from 'react';
 import type {
   GameState, GameSnapshot, Player, Property, MarketOpportunityId,
   SecretVentureId, Modifier, PropertyGroup, LogEntry,
@@ -61,7 +61,11 @@ const INITIAL_STATE: GameState = {
   eliminationCount: 0,
   log: [],
   franchiseeTargets: {},
-  undoState: null,
+  activePlayerId: null,
+  turnsTakenThisRotation: [],
+  rotationReadyForTax: false,
+  pendingTeamBoundProperties: null,
+  undoHistory: [],
 };
 
 const SAVE_KEY = 'monopolopoly-save-v1';
@@ -82,14 +86,14 @@ function makeLog(action: string, detail: string, playerIds: string[] = []): LogE
 }
 
 function stripUndoState(state: GameState): GameSnapshot {
-  const { undoState: _undoState, ...snapshot } = state;
+  const { undoHistory: _undoHistory, ...snapshot } = state;
   return snapshot;
 }
 
 function withUndo(state: GameState, nextState: GameState): GameState {
   return {
     ...nextState,
-    undoState: stripUndoState(state),
+    undoHistory: [...state.undoHistory, stripUndoState(state)],
   };
 }
 
@@ -107,7 +111,10 @@ function loadSavedState(): GameState | null {
     return {
       ...INITIAL_STATE,
       ...parsed,
-      undoState: parsed.undoState ?? null,
+      undoHistory: parsed.undoHistory ?? [],
+      turnsTakenThisRotation: parsed.turnsTakenThisRotation ?? [],
+      rotationReadyForTax: parsed.rotationReadyForTax ?? false,
+      pendingTeamBoundProperties: parsed.pendingTeamBoundProperties ?? null,
     };
   } catch {
     return null;
@@ -128,6 +135,8 @@ export type GameAction =
   | { type: 'RESET_GAME' }
   | { type: 'LOAD_GAME'; state: GameSnapshot }
   | { type: 'UNDO_LAST_ACTION' }
+  | { type: 'SET_ACTIVE_PLAYER'; playerId: string | null }
+  | { type: 'END_TURN' }
   | { type: 'RECORD_AUCTION'; propertyId: string; winnerId: string; amount: number }
   | { type: 'PAY_RENT'; propertyId: string; payerId: string; amount: number; diceRoll?: number }
   | { type: 'PASS_GO'; playerId: string }
@@ -147,7 +156,7 @@ export type GameAction =
   | { type: 'PAY_BANK'; playerId: string; amount: number; reason: string }   // pay cash to bank
   | { type: 'TRANSFER_CASH'; fromId: string; toId: string; amount: number; reason: string }
   | { type: 'ELIMINATE_PLAYER'; playerId: string; causingPlayerId: string | null }
-  | { type: 'ASSIGN_TEAM'; eliminatedPlayerId: string; acquiringPlayerId: string }
+  | { type: 'ASSIGN_TEAM'; eliminatedPlayerId: string; acquiringPlayerId: string; amount?: number }
   | { type: 'TRANSFER_PROPERTY'; propertyId: string; fromId: string | null; toId: string }
   | { type: 'INCREMENT_TURN_ROTATION' }
   | { type: 'USE_GOOJF'; playerId: string }
@@ -182,7 +191,7 @@ function ventureModifiers(ventureId: SecretVentureId, franchiseeTarget?: Propert
     case 'luck_of_the_draw':
       return [{ sourceId: ventureId, type: 'card_skip_move', description: 'Luck of the Draw: may skip move and draw a card' }];
     case 'utility_provider':
-      return [{ sourceId: ventureId, type: 'utility_combined_rent', description: 'Utility Provider: all utility landings charge combined (10×) rent' }];
+      return [{ sourceId: ventureId, type: 'utility_combined_rent', description: 'Utility Provider: all utility landings charge a 25× dice roll penalty rent' }];
     case 'slum_lord':
       return [
         { sourceId: ventureId, type: 'first_house_free', description: 'Slum Lord: first house on each Brown property is free' },
@@ -277,7 +286,46 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         players,
         properties: INITIAL_PROPERTIES.map(p => ({ ...p })),
         marketOpportunities: MARKET_OPPORTUNITIES.map(o => ({ ...o })),
+        activePlayerId: players[0]?.id ?? null,
         log: [makeLog('Game Started', `${players.length} players: ${players.map(p => p.name).join(', ')}`)],
+      };
+    }
+
+    case 'SET_ACTIVE_PLAYER': {
+      return { ...state, activePlayerId: action.playerId };
+    }
+
+    case 'END_TURN': {
+      const activeIds = state.players.filter(p => !p.isEliminated && !p.teamOf).map(p => p.id);
+      if (activeIds.length === 0) return state;
+
+      const currentId = state.activePlayerId && activeIds.includes(state.activePlayerId)
+        ? state.activePlayerId
+        : activeIds[0];
+      const currentPlayer = state.players.find(p => p.id === currentId);
+
+      const takenSet = new Set(state.turnsTakenThisRotation.filter(id => activeIds.includes(id)));
+      takenSet.add(currentId);
+
+      const orderedIds = state.players.map(p => p.id).filter(id => activeIds.includes(id));
+      const idx = orderedIds.indexOf(currentId);
+      const nextId = orderedIds[(idx + 1) % orderedIds.length];
+
+      const rotationComplete = activeIds.every(id => takenSet.has(id));
+
+      return {
+        ...state,
+        activePlayerId: nextId,
+        turnsTakenThisRotation: rotationComplete ? [] : Array.from(takenSet),
+        rotationReadyForTax: rotationComplete ? true : state.rotationReadyForTax,
+        log: [
+          ...state.log,
+          makeLog(
+            'Turn',
+            `${currentPlayer?.name ?? 'Player'} ended their turn${rotationComplete ? ' — full rotation complete! Net-worth tax is ready.' : ''}`,
+            currentPlayer ? [currentPlayer.id] : [],
+          ),
+        ],
       };
     }
 
@@ -528,6 +576,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       return {
         ...newState,
         turnRotationCount: state.turnRotationCount + 1,
+        rotationReadyForTax: false,
         log: [...newState.log, makeLog('Net Worth Tax', `Rotation ${state.turnRotationCount + 1}: $${totalCollected} collected into Free Parking pool`)],
       };
     }
@@ -643,10 +692,20 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       if (!player) return state;
       const causer = causingPlayerId ? state.players.find(p => p.id === causingPlayerId) : null;
 
-      // Cash goes to causer, properties will be handled via RECORD_AUCTION actions
+      // Utility and Brown properties this player owned are held aside — they
+      // skip individual re-auction and transfer directly, as a block, to
+      // whichever player acquires this player as a teammate.
+      const teamBoundPropertyIds = state.properties
+        .filter(p => p.ownerId === playerId && (p.group === 'Utility' || p.group === 'Brown'))
+        .map(p => p.id);
+
+      // Cash goes to causer, remaining properties will be handled via RECORD_AUCTION actions
       let newState: GameState = {
         ...state,
         eliminationCount: state.eliminationCount + 1,
+        pendingTeamBoundProperties: teamBoundPropertyIds.length > 0
+          ? { eliminatedPlayerId: playerId, propertyIds: teamBoundPropertyIds }
+          : null,
         players: state.players.map(p => {
           if (p.id === playerId) return { ...p, isEliminated: true, cash: 0 };
           if (causer && p.id === causingPlayerId) return { ...p, cash: p.cash + player.cash };
@@ -658,7 +717,9 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         ),
         log: [...state.log, makeLog(
           'Elimination',
-          `${player.name} was eliminated.${causer ? ` $${player.cash} cash transferred to ${causer.name}.` : ''} Properties returned to bank.`,
+          `${player.name} was eliminated.${causer ? ` $${player.cash} cash transferred to ${causer.name}.` : ''} Properties returned to bank.${
+            teamBoundPropertyIds.length > 0 ? ` ${teamBoundPropertyIds.length} Utility/Brown propert${teamBoundPropertyIds.length === 1 ? 'y' : 'ies'} reserved to transfer with the teammate acquisition.` : ''
+          }`,
           [playerId, ...(causingPlayerId ? [causingPlayerId] : [])]
         )],
       };
@@ -675,7 +736,7 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'ASSIGN_TEAM': {
-      const { eliminatedPlayerId, acquiringPlayerId } = action;
+      const { eliminatedPlayerId, acquiringPlayerId, amount } = action;
       const eliminated = state.players.find(p => p.id === eliminatedPlayerId);
       const acquiring = state.players.find(p => p.id === acquiringPlayerId);
       if (!eliminated || !acquiring) return state;
@@ -686,15 +747,31 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         ? [...acquiring.pendingAbsorbedVentures, eliminated.secretVenture]
         : acquiring.pendingAbsorbedVentures;
 
+      // Directly transfer any Utility/Brown properties reserved from this elimination
+      const teamBound = state.pendingTeamBoundProperties?.eliminatedPlayerId === eliminatedPlayerId
+        ? state.pendingTeamBoundProperties.propertyIds
+        : [];
+      const teamBoundNames = teamBound
+        .map(id => state.properties.find(p => p.id === id)?.name)
+        .filter(Boolean);
+
+      const bidAmount = amount && amount > 0 ? amount : 0;
+
       return {
         ...state,
+        pendingTeamBoundProperties: teamBound.length > 0 ? null : state.pendingTeamBoundProperties,
+        properties: teamBound.length > 0
+          ? state.properties.map(p => teamBound.includes(p.id) ? { ...p, ownerId: acquiringPlayerId } : p)
+          : state.properties,
         players: state.players.map(p => {
           if (p.id === acquiringPlayerId) {
             return {
               ...p,
+              cash: p.cash - bidAmount,
               absorbedPlayers: [...p.absorbedPlayers, eliminatedPlayerId],
               activeModifiers: [...p.activeModifiers, ...transferredMods],
               pendingAbsorbedVentures: pendingVentures,
+              ownedPropertyIds: [...p.ownedPropertyIds, ...teamBound],
             };
           }
           if (p.id === eliminatedPlayerId) {
@@ -702,7 +779,17 @@ function gameReducer(state: GameState, action: GameAction): GameState {
           }
           return p;
         }),
-        log: [...state.log, makeLog('Team', `${eliminated.name} joined ${acquiring.name}'s team`, [eliminatedPlayerId, acquiringPlayerId])],
+        log: [
+          ...state.log,
+          makeLog(
+            'Team',
+            `${eliminated.name} joined ${acquiring.name}'s team${bidAmount > 0 ? ` — ${acquiring.name} paid $${bidAmount} to acquire them` : ''}`,
+            [eliminatedPlayerId, acquiringPlayerId],
+          ),
+          ...(teamBoundNames.length > 0
+            ? [makeLog('Team', `${acquiring.name} directly received ${teamBoundNames.join(', ')} (Utility/Brown — kept with the team acquisition)`, [acquiringPlayerId])]
+            : []),
+        ],
       };
     }
 
@@ -787,25 +874,34 @@ function gameReducer(state: GameState, action: GameAction): GameState {
 }
 
 function undoableGameReducer(state: GameState, action: GameAction): GameState {
+  // Defensive guard: a stale/legacy state shape (e.g. leftover HMR state or an
+  // old save predating the undo-history feature) may not have this as an array.
+  if (!Array.isArray(state.undoHistory)) {
+    state = { ...state, undoHistory: [] };
+  }
+
   if (action.type === 'RESET_GAME') {
     return {
       ...INITIAL_STATE,
-      undoState: null,
+      undoHistory: [],
     };
   }
 
   if (action.type === 'LOAD_GAME') {
     return {
       ...action.state,
-      undoState: null,
+      undoHistory: [],
     };
   }
 
   if (action.type === 'UNDO_LAST_ACTION') {
-    if (!state.undoState) return state;
+    if (state.undoHistory.length === 0) return state;
+    const nextHistory = [...state.undoHistory];
+    const previousState = nextHistory.pop();
+    if (!previousState) return state;
     return {
-      ...state.undoState,
-      undoState: null,
+      ...previousState,
+      undoHistory: nextHistory,
     };
   }
 
@@ -814,7 +910,7 @@ function undoableGameReducer(state: GameState, action: GameAction): GameState {
 
   return {
     ...nextState,
-    undoState: stripUndoState(state),
+    undoHistory: [...state.undoHistory, stripUndoState(state)],
   };
 }
 
@@ -836,11 +932,24 @@ type GameContextValue = {
 const GameContext = createContext<GameContextValue | null>(null);
 
 export function GameProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(undoableGameReducer, undefined, () => loadSavedState() ?? INITIAL_STATE);
+  // Always start from INITIAL_STATE on both server and first client render so
+  // the hydrated markup matches exactly. The saved game (if any) is loaded in
+  // an effect after mount, once we're safely past hydration.
+  const [state, dispatch] = useReducer(undoableGameReducer, INITIAL_STATE);
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
+    const saved = loadSavedState();
+    if (saved) {
+      dispatch({ type: 'LOAD_GAME', state: saved });
+    }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
     persistState(state);
-  }, [state]);
+  }, [state, hydrated]);
 
   const saveGame = () => persistState(state);
   const loadSavedGame = () => {

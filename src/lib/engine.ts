@@ -32,6 +32,37 @@ export function rankPlayersByNetWorth(
 }
 
 // ──────────────────────────────────────────────────────────────
+// Modifier activity status
+// ──────────────────────────────────────────────────────────────
+// Most modifiers apply based on the holder's own identity (jail immunity,
+// GO multiplier, rent discount as payer, movement choices, etc.) and stay
+// fully functional no matter what happens to properties around them.
+// A few modifiers only take effect when the holder currently OWNS a
+// qualifying property (e.g. Utility Provider's rent penalty only fires on
+// utilities the holder owns; Slum Lord's free-Brown-house perk only fires
+// on Brown properties the holder owns). If a modifier like that is
+// inherited via a team acquisition but the underlying properties went
+// elsewhere in the elimination auction, it becomes "dormant" until the
+// holder acquires a qualifying property (by trade, future auction win, etc).
+export type ModifierStatus = { active: boolean; note?: string };
+
+export function getModifierStatus(modifier: Modifier, playerId: string, properties: Property[]): ModifierStatus {
+  if (modifier.type === 'utility_combined_rent') {
+    const ownsAnyUtility = properties.some(p => p.group === 'Utility' && p.ownerId === playerId);
+    return ownsAnyUtility
+      ? { active: true }
+      : { active: false, note: 'Dormant — owns no Utilities yet' };
+  }
+  if (modifier.type === 'first_house_free') {
+    const ownsAnyBrown = properties.some(p => p.group === 'Brown' && p.ownerId === playerId);
+    return ownsAnyBrown
+      ? { active: true }
+      : { active: false, note: 'Dormant — owns no Brown properties yet' };
+  }
+  return { active: true };
+}
+
+// ──────────────────────────────────────────────────────────────
 // Monopoly Detection
 // ──────────────────────────────────────────────────────────────
 
@@ -98,17 +129,22 @@ export function calculateRent(
     // Check if Utility Provider venture is active on the owner
     const hasUtilityProvider = owner.activeModifiers.some(m => m.type === 'utility_combined_rent');
     const ownedUtils = ownsUtilities(owner.id, properties);
-    const multiplier = hasUtilityProvider ? 10 : (ownedUtils === 2 ? 10 : 4);
+    const multiplier = hasUtilityProvider ? 25 : (ownedUtils === 2 ? 10 : 4);
+    const reason = hasUtilityProvider
+      ? `Utility Provider venture (${owner.name}): 25× penalty rent applies`
+      : ownedUtils === 2
+      ? `${owner.name} owns both Utilities`
+      : `${owner.name} owns 1 Utility`;
     if (!diceRoll) {
       return {
         baseAmount: 0,
         finalAmount: 0,
-        breakdown: ['Utility — dice roll required to compute rent.'],
+        breakdown: [`${reason} — ${multiplier}× dice roll. Enter dice roll to calculate.`],
         diceRollNeeded: true,
       };
     }
     base = multiplier * diceRoll;
-    breakdown.push(`Utility rent (${multiplier}× dice roll of ${diceRoll}): $${base}`);
+    breakdown.push(`${reason}: ${multiplier}× dice roll of ${diceRoll} = $${base}`);
   } else {
     // Standard property
     if (property.hasHotel) {

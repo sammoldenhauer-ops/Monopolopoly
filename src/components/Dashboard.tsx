@@ -13,10 +13,13 @@ import FreeParkingPanel from '@/components/FreeParkingPanel';
 import EliminationPanel from '@/components/EliminationPanel';
 import GameLog from '@/components/GameLog';
 import ActionsPanel from '@/components/ActionsPanel';
+import LandingPanel from '@/components/LandingPanel';
+import TurnTracker from '@/components/TurnTracker';
 
-type Tab = 'players' | 'board' | 'rent' | 'auction' | 'actions' | 'ventures' | 'opportunities' | 'tax' | 'parking' | 'elimination' | 'log';
+type Tab = 'landing' | 'players' | 'board' | 'rent' | 'auction' | 'actions' | 'ventures' | 'opportunities' | 'tax' | 'parking' | 'elimination' | 'log';
 
 const TABS: { id: Tab; label: string; emoji: string }[] = [
+  { id: 'landing',       label: 'Play',          emoji: '🎯' },
   { id: 'players',       label: 'Players',       emoji: '👥' },
   { id: 'board',         label: 'Board',          emoji: '🏘' },
   { id: 'rent',          label: 'Rent',           emoji: '💰' },
@@ -82,7 +85,7 @@ function HeaderConfirmButton({
 
 export default function Dashboard() {
   const { state, activePlayers, pendingOpportunities, saveGame, loadSavedGame, resetGame } = useGame();
-  const [tab, setTab] = useState<Tab>('players');
+  const [tab, setTab] = useState<Tab>('landing');
   const [pendingConfirm, setPendingConfirm] = useState<ConfirmKey>(null);
 
   return (
@@ -135,6 +138,9 @@ export default function Dashboard() {
         </div>
       </header>
 
+      {/* Turn tracker */}
+      <TurnTracker onJumpToTax={() => setTab('tax')} />
+
       {/* Tab nav */}
       <nav className="bg-gray-800 border-b border-gray-700 px-2 overflow-x-auto">
         <div className="flex gap-0.5 min-w-max py-1">
@@ -156,6 +162,7 @@ export default function Dashboard() {
 
       {/* Main content */}
       <main className="flex-1 p-4 max-w-5xl mx-auto w-full">
+        {tab === 'landing'       && <LandingPanel onNavigateToTax={() => setTab('tax')} />}
         {tab === 'players'       && <PlayerOverview />}
         {tab === 'board'         && <PropertyBoard />}
         {tab === 'rent'          && <RentCalculator />}

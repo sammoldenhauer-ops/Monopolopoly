@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useGame } from '@/lib/gameStore';
-import { calcNetWorth } from '@/lib/engine';
+import { calcNetWorth, getModifierStatus } from '@/lib/engine';
 import { GROUP_COLORS, GROUP_LABEL, fmt$ } from '@/lib/ui';
 import type { Player, PropertyGroup } from '@/lib/types';
 
@@ -94,11 +94,24 @@ function PlayerCard({ player }: { player: Player }) {
             <div>
               <div className="text-gray-400 text-xs uppercase tracking-wide mb-1">Active Modifiers</div>
               <ul className="space-y-1">
-                {player.activeModifiers.map((m, i) => (
-                  <li key={i} className="text-yellow-300 text-xs bg-yellow-900/30 rounded px-2 py-1">
-                    {m.description}
-                  </li>
-                ))}
+                {player.activeModifiers.map((m, i) => {
+                  const status = getModifierStatus(m, player.id, state.properties);
+                  return (
+                    <li
+                      key={i}
+                      className={`text-xs rounded px-2 py-1 flex items-center justify-between gap-2 ${
+                        status.active ? 'text-yellow-300 bg-yellow-900/30' : 'text-gray-400 bg-gray-700/40'
+                      }`}
+                    >
+                      <span>{m.description}</span>
+                      {!status.active && (
+                        <span className="shrink-0 text-gray-400 bg-gray-600/60 px-1.5 py-0.5 rounded" title={status.note}>
+                          Dormant
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}

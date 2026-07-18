@@ -27,7 +27,7 @@ export default function GameLog() {
                   </div>
                   <div className="text-gray-300 mt-0.5">{entry.detail}</div>
                 </div>
-                {isMostRecent && state.undoState && (
+                {isMostRecent && state.undoHistory.length > 0 && (
                   <div className="shrink-0 flex items-center gap-2">
                     {pendingUndo ? (
                       <>

@@ -13,10 +13,15 @@ export default function EliminationPanel() {
   const [causingPlayerId, setCausingPlayerId] = useState('');
   const [propertyAuctions, setPropertyAuctions] = useState<Record<string, { winnerId: string; amount: string }>>({});
   const [teamAcquirerId, setTeamAcquirerId] = useState('');
+  const [teamBidAmount, setTeamBidAmount] = useState('');
 
   const eliminated = state.players.find(p => p.id === eliminatedId);
   const causingPlayer = state.players.find(p => p.id === causingPlayerId);
   const eliminatedProps = state.properties.filter(p => p.ownerId === eliminatedId);
+  // Utility and Brown properties skip individual auction — they transfer directly
+  // with whichever player acquires this player as a teammate.
+  const teamBoundProps = eliminatedProps.filter(p => p.group === 'Utility' || p.group === 'Brown');
+  const auctionableProps = eliminatedProps.filter(p => p.group !== 'Utility' && p.group !== 'Brown');
   const isFirstElimination = state.eliminationCount === 0;
 
   // Last place (for auto-assign on first elimination)
@@ -26,9 +31,9 @@ export default function EliminationPanel() {
   function startElimination() {
     if (!eliminatedId) return;
     dispatch({ type: 'ELIMINATE_PLAYER', playerId: eliminatedId, causingPlayerId: causingPlayerId || null });
-    // Initialize auction entries for each property
+    // Initialize auction entries for each non-Utility/Brown property
     const auctions: Record<string, { winnerId: string; amount: string }> = {};
-    eliminatedProps.forEach(p => { auctions[p.id] = { winnerId: '', amount: '' }; });
+    auctionableProps.forEach(p => { auctions[p.id] = { winnerId: '', amount: '' }; });
     setPropertyAuctions(auctions);
     setStep('properties');
   }
@@ -57,8 +62,9 @@ export default function EliminationPanel() {
   }
 
   function handleTeamAssign() {
-    if (!teamAcquirerId) return;
-    dispatch({ type: 'ASSIGN_TEAM', eliminatedPlayerId: eliminatedId, acquiringPlayerId: teamAcquirerId });
+    const amount = parseInt(teamBidAmount);
+    if (!teamAcquirerId || isNaN(amount) || amount < 0) return;
+    dispatch({ type: 'ASSIGN_TEAM', eliminatedPlayerId: eliminatedId, acquiringPlayerId: teamAcquirerId, amount });
     setStep('done');
   }
 
@@ -68,6 +74,7 @@ export default function EliminationPanel() {
     setCausingPlayerId('');
     setPropertyAuctions({});
     setTeamAcquirerId('');
+    setTeamBidAmount('');
   }
 
   const remainingAuctionProps = Object.keys(propertyAuctions);
@@ -117,7 +124,12 @@ export default function EliminationPanel() {
             <div className="bg-gray-700 rounded p-3 text-sm space-y-1">
               <div className="text-white font-medium">{eliminated?.name}</div>
               <div className="text-gray-300">Cash: {fmt$(eliminated?.cash ?? 0)} → {causingPlayer ? causingPlayer.name : 'bank'}</div>
-              <div className="text-gray-300">Properties ({eliminatedProps.length}): {eliminatedProps.map(p => p.name).join(', ') || 'none'}</div>
+              <div className="text-gray-300">Auctioned individually ({auctionableProps.length}): {auctionableProps.map(p => p.name).join(', ') || 'none'}</div>
+              {teamBoundProps.length > 0 && (
+                <div className="text-purple-300">
+                  Kept together for the teammate ({teamBoundProps.length}): {teamBoundProps.map(p => p.name).join(', ')}
+                </div>
+              )}
               <div className="text-blue-300 text-xs">
                 {isFirstElimination
                   ? `First elimination — will auto-join ${lastPlace?.name ?? '?'} (last place)`
@@ -143,8 +155,15 @@ export default function EliminationPanel() {
             Auction each property individually. Enter winner + amount and click Record for each.
           </p>
 
+          {teamBoundProps.length > 0 && (
+            <div className="bg-purple-900/40 border border-purple-700 rounded px-3 py-2 text-purple-200 text-xs">
+              🔒 {teamBoundProps.map(p => p.name).join(', ')} {teamBoundProps.length === 1 ? 'is' : 'are'} Utility/Brown —
+              not auctioned here. {teamBoundProps.length === 1 ? 'It' : 'They'} will transfer directly with the teammate acquisition in the next step.
+            </div>
+          )}
+
           {remainingAuctionProps.length === 0 && (
-            <div className="text-green-400 text-sm">All properties auctioned!</div>
+            <div className="text-green-400 text-sm">All auctionable properties recorded!</div>
           )}
 
           {state.properties
@@ -202,8 +221,14 @@ export default function EliminationPanel() {
           <h3 className="text-white font-semibold">Step: Team Assignment (Auction)</h3>
           <p className="text-gray-400 text-sm">
             This is elimination #{state.eliminationCount}. {eliminated?.name} is auctioned off as a teammate.
-            Record which player won the team auction.
+            Record which player won the team auction and how much they bid.
           </p>
+
+          {teamBoundProps.length > 0 && (
+            <div className="bg-purple-900/40 border border-purple-700 rounded px-3 py-2 text-purple-200 text-xs">
+              🔒 Whoever wins will also directly receive: {teamBoundProps.map(p => p.name).join(', ')}
+            </div>
+          )}
 
           <div>
             <label className="text-gray-400 text-sm block mb-1">Acquiring player (team auction winner)</label>
@@ -214,17 +239,29 @@ export default function EliminationPanel() {
             >
               <option value="">— select —</option>
               {activePlayers.filter(p => p.id !== eliminatedId).map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
+                <option key={p.id} value={p.id}>{p.name} ({fmt$(p.cash)})</option>
               ))}
             </select>
           </div>
 
+          <div>
+            <label className="text-gray-400 text-sm block mb-1">Winning bid amount</label>
+            <input
+              type="number"
+              min={0}
+              value={teamBidAmount}
+              onChange={e => setTeamBidAmount(e.target.value)}
+              placeholder="e.g. 100"
+              className="w-full bg-gray-700 text-white rounded px-3 py-2 text-sm border border-gray-600"
+            />
+          </div>
+
           <button
             onClick={handleTeamAssign}
-            disabled={!teamAcquirerId}
+            disabled={!teamAcquirerId || teamBidAmount === '' || parseInt(teamBidAmount) < 0}
             className="w-full bg-purple-700 hover:bg-purple-600 disabled:bg-gray-600 text-white rounded px-4 py-2 font-semibold"
           >
-            Assign to Team
+            Assign to Team — Pay {teamBidAmount ? fmt$(parseInt(teamBidAmount) || 0) : '$0'}
           </button>
         </div>
       )}
@@ -234,6 +271,10 @@ export default function EliminationPanel() {
           <div className="text-green-300 font-semibold">✓ Elimination complete!</div>
           <p className="text-green-200 text-sm">
             {eliminated?.name} has been eliminated and their assets have been distributed.
+            {(() => {
+              const teamOwner = state.players.find(p => p.id === eliminated?.teamOf);
+              return teamOwner ? ` They are now on ${teamOwner.name}'s team.` : '';
+            })()}
           </p>
           <button
             onClick={reset}

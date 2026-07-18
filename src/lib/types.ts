@@ -169,8 +169,20 @@ export type GameState = {
   log: LogEntry[];
   /** franchisee targets: playerId -> propertyGroup they are immune-discounted on */
   franchiseeTargets: Record<string, PropertyGroup>;
-  /** single-step undo snapshot for the most recent state-changing action */
-  undoState: GameSnapshot | null;
+  /** stack of prior states, newest last, for repeated undo of the most recent log item */
+  undoHistory: GameSnapshot[];
+  /** id of the player whose turn it currently is (drives pre-filled selects across panels) */
+  activePlayerId: string | null;
+  /** ids of active players who have completed a turn during the current rotation-in-progress */
+  turnsTakenThisRotation: string[];
+  /** true once a full turn rotation has completed and net-worth tax is ready to run */
+  rotationReadyForTax: boolean;
+  /**
+   * Utility and Brown properties owned by a just-eliminated player are held here
+   * (not individually re-auctioned) until the team-acquisition step completes,
+   * at which point they transfer directly to the acquiring player as a block.
+   */
+  pendingTeamBoundProperties: { eliminatedPlayerId: string; propertyIds: string[] } | null;
 };
 
-export type GameSnapshot = Omit<GameState, 'undoState'>;
+export type GameSnapshot = Omit<GameState, 'undoHistory'>;
